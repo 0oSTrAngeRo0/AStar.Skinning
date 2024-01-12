@@ -1,0 +1,156 @@
+#pragma kernel CSMain
+
+#pragma multi_compile_local _ ENABLE_BLEND_SHAPE
+#pragma multi_compile_local BONE_WEIGHT_COUNT_0 BONE_WEIGHT_COUNT_1 BONE_WEIGHT_COUNT_2 BONE_WEIGHT_COUNT_3 BONE_WEIGHT_COUNT_4
+
+#if defined(BONE_WEIGHT_COUNT_1)
+#define BONE_WEIGHTS float
+#define BONE_INDICES uint
+#endif
+#if defined(BONE_WEIGHT_COUNT_2)
+#define BONE_WEIGHT_COUNT 2
+#define BONE_WEIGHTS float2
+#define BONE_INDICES uint2
+#endif
+#if defined(BONE_WEIGHT_COUNT_3)
+#define BONE_WEIGHT_COUNT 3
+#define BONE_WEIGHTS float3
+#define BONE_INDICES uint3
+#endif
+#if defined(BONE_WEIGHT_COUNT_4)
+#define BONE_WEIGHT_COUNT 4
+#define BONE_WEIGHTS float4
+#define BONE_INDICES uint4
+#endif
+
+struct VertexPosition
+{
+    float3 Position;
+    float3 Normal;
+    float4 Tangent;
+};
+
+struct VertexShading
+{
+    unorm float4 Color;
+    float2 TexCoord0;
+};
+
+StructuredBuffer<VertexPosition> OriginalPositionVertexBuffer;
+StructuredBuffer<VertexShading> ShadingVertexBuffer;
+
+RWStructuredBuffer<VertexPosition> PositionVertexBuffer;
+
+#if defined(ENABLE_BLEND_SHAPE)
+
+struct VertexBlendShape
+{
+    int Index;
+    float3 Position;
+    float3 Normal;
+    float3 Tangent;
+};
+
+StructuredBuffer<float> BlendShapeWeightsBuffer;
+StructuredBuffer<int> BlendShapeBuffer;
+
+VertexBlendShape GetBlendShapeData(inout int start, in StructuredBuffer<int> blend_shape_buffer)
+{
+    VertexBlendShape data;
+    data.Index = blend_shape_buffer[start++];
+
+    float3 position;
+    position.x = asfloat(blend_shape_buffer[start++]);
+    position.y = asfloat(blend_shape_buffer[start++]);
+    position.z = asfloat(blend_shape_buffer[start++]);
+    data.Position = position;
+
+    float3 normal;
+    normal.x = asfloat(blend_shape_buffer[start++]);
+    normal.y = asfloat(blend_shape_buffer[start++]);
+    normal.z = asfloat(blend_shape_buffer[start++]);
+    data.Normal = normal;
+
+    float3 tangent;
+    tangent.x = asfloat(blend_shape_buffer[start++]);
+    tangent.y = asfloat(blend_shape_buffer[start++]);
+    tangent.z = asfloat(blend_shape_buffer[start++]);
+    data.Tangent = tangent;
+
+    return data;
+}
+
+float3 ApplyBlendShapes(in int vertex_index, in float3 origin, in StructuredBuffer<int> blend_shape_buffer,
+                        in StructuredBuffer<float> blend_shape_weights_buffer)
+{
+    int start = blend_shape_buffer[vertex_index];
+    const int end = blend_shape_buffer[vertex_index + 1];
+    float3 position = origin;
+    while (start < end)
+    {
+        const VertexBlendShape data = GetBlendShapeData(start, blend_shape_buffer);
+        const float weight = blend_shape_weights_buffer[data.Index];
+        position += data.Position * weight;
+    }
+
+    return position;
+}
+
+#endif
+
+#if !defined(BONE_WEIGHT_COUNT_0)
+
+struct VertexBone
+{
+    BONE_WEIGHTS BlendWeights: BLENDWEIGHTS;
+    BONE_INDICES BlendIndices: BLENDINDICES;
+};
+
+StructuredBuffer<VertexBone> BoneVertexBuffer;
+StructuredBuffer<float4x4> BindPosesBuffer;
+StructuredBuffer<float4x4> CurrentPosesBuffer;
+
+float3 LinearBlendSkinning(in VertexBone bone, in float3 origin)
+{
+    const BONE_WEIGHTS weights = bone.BlendWeights;
+    const BONE_INDICES indices = bone.BlendIndices;
+    float3 position = 0;
+    
+    #if defined(BONE_WEIGHT_COUNT_1)
+    const float4x4 pose = mul(CurrentPosesBuffer[indices], BindPosesBuffer[indices]);
+    const float3 bonePosition = mul(pose, float4(origin, 1.0f)).xyz;
+    position += bonePosition * weights;
+    #else
+    for (int i = 0; i < BONE_WEIGHT_COUNT; i++)
+    {
+        const float4x4 pose = mul(CurrentPosesBuffer[indices[i]], BindPosesBuffer[indices[i]]);
+        const float3 bonePosition = mul(pose, float4(origin, 1.0f)).xyz;
+        position += bonePosition * weights[i];
+    }
+    #endif
+    
+    return position;
+}
+
+#endif
+
+[numthreads(16,1,1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    const uint vertex_index = id.x;
+    VertexPosition origin_vertex = OriginalPositionVertexBuffer[vertex_index];
+    float3 origin = origin_vertex.Position;
+
+    // apply blend shapes
+    #if defined(ENABLE_BLEND_SHAPE)
+    origin = ApplyBlendShapes(vertex_index, origin, BlendShapeBuffer, BlendShapeWeightsBuffer);
+    #endif
+
+    // linear skinning
+    #if !defined(BONE_WEIGHT_COUNT_0)
+    origin = LinearBlendSkinning(BoneVertexBuffer[vertex_index], origin);
+    #endif
+
+    origin_vertex.Position = origin;
+    PositionVertexBuffer[id.x] = origin_vertex;
+}

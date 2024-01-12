@@ -1,0 +1,26 @@
+{
+  "name": "astar.skinning",
+  "version": "0.0.1",
+  "displayName": "Skinning",
+  "description": "Skinning",
+  "unity": "2022.3",
+  "documentationUrl": "https://packages.unity.astar.zone/Skinning/Documentation",
+  "changelogUrl": "https://packages.unity.astar.zone/Skinning/ChangeLog",
+  "licensesUrl": "https://packages.unity.astar.zone/Skinning/Licenese",
+  "dependencies": {
+    "com.unity.burst": "1.8.11",
+    "com.unity.render-pipelines.core": "14.0.9",
+    "com.unity.mathematics": "1.2.6"
+  },
+  "keywords": [
+    "Linear Blend Skinning",
+    "GPU Skinning",
+    "Job Skinning"
+  ],
+  "author": {
+    "name": "AStar",
+    "email": "sxw59941513@163.com",
+    "url": "https://astar.zone"
+  },
+  "hideInEditor": false
+}
